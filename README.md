@@ -1,98 +1,111 @@
 # Pneumonia Detection from Chest X-Rays
 
-A deep learning project for classifying chest X-ray images as **NORMAL** or **PNEUMONIA**, built with fastai, PyTorch, and a pretrained ResNet50 model in Google Colab.
+A deep learning project that classifies chest X-ray images as **NORMAL** or **PNEUMONIA**. It includes two model notebooks and a Flask web app that serves the Keras CNN.
 
-> For educational use only. This is not a medical tool and must not be used to diagnose pneumonia or guide treatment.
+> **For educational use only.** This is not a medical tool and must not be used to diagnose pneumonia or guide treatment.
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/uzmaa29/Pneumonia-Detection/blob/main/pnuemonia_prediction.ipynb)
+[v]
 
 ## Overview
 
-The notebook covers dataset download, image preprocessing, model training, and basic evaluation. It uses transfer learning to adapt a ResNet50 model pretrained on ImageNet to a two-class chest X-ray classification task.
+The project has three parts:
 
-**Next step:** a Flask web app is planned, where a user can upload a chest X-ray and see the model's prediction. It is not built yet.
-
-### Current features
-
-- Download the dataset using the Kaggle API.
-- Load and resize images to 224 x 224 pixels with fastai.
-- Train a ResNet50 model and track validation accuracy.
-- Visualize predictions with a confusion matrix.
-- Run predictions on individual X-ray images.
+1. **Keras CNN notebook** (`pneumonia_keras.ipynb`): a CNN built from scratch with TensorFlow/Keras, trained and evaluated on a patient-separated split.
+2. **Flask app** (`app.py`, `templates/index.html`): upload a chest X-ray and get a prediction from the saved Keras model.
+3. **fastai ResNet50 notebook** (`pnuemonia_prediction.ipynb`): an earlier transfer-learning experiment, kept for reference.
 
 ## Dataset
 
-This project uses the [Chest X-Ray Images (Pneumonia)](https://www.kaggle.com/datasets/paultimothymooney/chest-xray-pneumonia) dataset shared by Paul Mooney on Kaggle.
+This project uses the [Chest X-Ray Images (Pneumonia)](https://www.kaggle.com/datasets/paultimothymooney/chest-xray-pneumonia) dataset by Paul Mooney on Kaggle. See the dataset page for its license and terms of use.
 
-The classification labels are:
+Labels: **NORMAL** and **PNEUMONIA**.
 
-- **NORMAL**
-- **PNEUMONIA**
-
-See the dataset page for its documentation, license, and terms of use.
-
-## Method
+## Method (Keras CNN)
 
 | Step | Implementation |
 | --- | --- |
-| Data loading | `ImageDataLoaders.from_folder` |
-| Image size | 224 x 224 pixels |
-| Validation split | Random 20% split with `valid_pct=0.2` and `seed=67` |
-| Model | Pretrained ResNet50 through `vision_learner` |
-| Metric | Accuracy |
-| Learning-rate exploration | `learn.lr_find()` |
-| Training | `learn.fit_one_cycle(4, slice(1e-3, 1e-1))` |
-| Evaluation | `ClassificationInterpretation` and a confusion matrix |
-| Single-image inference | `learn.predict()` |
+| Image size | 224 x 224 RGB, scaled to 0 to 1 |
+| Model | 3 Conv2D blocks (32, 64, 128 filters) with BatchNormalization and MaxPooling, then Dense(128), Dropout(0.5), and a sigmoid output |
+| Augmentation | Small rotation, zoom, and horizontal flip (training only) |
+| Class imbalance | Class weights computed from the training set |
+| Split | Validation is taken from `train/` using a patient-grouped split, so no patient appears in both training and validation. The `test/` folder is used once, for final evaluation. |
+| Training | Adam (learning rate 1e-3), binary cross-entropy, EarlyStopping, ReduceLROnPlateau, and ModelCheckpoint |
 
-**Split caveat:** the notebook loads images from the combined dataset folders and creates a random validation split. It does not preserve the dataset's supplied train, validation, and test separation.
+Patient IDs come from the filenames (`IM-xxxx` for NORMAL, `personxxx` for PNEUMONIA).
+
+Split sizes: 4,163 training, 1,053 validation, and 624 test images.
 
 ## Results
 
-The recorded training run used a **Google Colab T4 GPU**.
+Trained on Google Colab with a T4 GPU. Restored weights come from epoch 6, the best validation loss.
 
-The following values are rounded from the training output saved in the notebook:
+**Test set (624 images, never used for training or tuning):**
 
-| Epoch | Training loss | Validation loss | Validation accuracy |
-| --- | --- | --- | --- |
-| 0 | 0.5604 | 0.2742 | 94.75% |
-| 1 | 0.2693 | 0.1127 | 97.05% |
-| 2 | 0.1619 | 0.0997 | 96.46% |
-| 3 | 0.0788 | 0.0682 | 97.57% |
+| Metric | Value |
+| --- | --- |
+| Accuracy | 86.5% |
+| AUC | 0.925 |
+| NORMAL recall | 88% (207 of 234) |
+| PNEUMONIA recall | 85% (333 of 390) |
 
-Final recorded validation accuracy: **97.57%** on this random split.
+Confusion matrix (rows are true labels, columns are predictions):
 
-The notebook also includes two manual predictions, one image labeled NORMAL and one labeled PNEUMONIA. Both predictions match their labels. These examples are demonstrations, not a separate test-set evaluation.
+| | Predicted NORMAL | Predicted PNEUMONIA |
+| --- | --- | --- |
+| **True NORMAL** | 207 | 27 |
+| **True PNEUMONIA** | 57 | 333 |
+
+**A note on earlier results:** an earlier fastai run reported 97.57% validation accuracy, but that split mixed images from the same patients into both training and validation, so it overstated performance. The Keras results above are the reliable numbers.
 
 ## Limitations
 
-- Validation accuracy is not held-out test accuracy or evidence of clinical performance.
-- Because the supplied dataset splits are pooled before splitting again, the manually selected images from the `test` folder are not guaranteed to be unseen during training.
-- Only two manual predictions are shown. Precision, recall, and other metrics have not been reported on an independent test set.
-- Performance on images from other hospitals, scanners, or patient populations has not been established.
-- The current project is a notebook. A Flask app has not been implemented yet.
+- Test accuracy is measured on one dataset, not on clinical data from other hospitals, scanners, or patient populations.
+- Validation accuracy varied a lot between epochs during training, so results may change between runs.
+- The model makes errors in both directions. Missed pneumonia cases (57 in the test set) are the most important type of error in a clinical setting.
+- The Flask app is a demonstration. It has no authentication, no logging, and is meant to run locally.
 
-## Run the notebook
+## Run the Flask app
 
-1. Open the notebook using the Colab badge above.
-2. Select a GPU runtime for training if one is available.
-3. Provide your own Kaggle API credentials in a `kaggle.json` file at `/content/kaggle.json`, as expected by the notebook. Do not commit this file to GitHub or share it.
-4. Ensure the notebook's dependencies are installed: `fastai`, `torch`, `torchvision`, `pandas`, `numpy`, and the Kaggle CLI.
-5. Run the cells in order to download and extract the dataset, train the model, and view the evaluation output.
+Requirements: Python 3.12 and a virtual environment.
 
-The notebook uses Colab-specific paths under `/content`. Adjust those paths if running locally. Results may vary between runs and environments.
+```bash
+python -m venv .venv
+.venv\Scripts\activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python app.py
+```
 
-## Planned improvements
+Then open http://127.0.0.1:5000, upload a chest X-ray, and click **Predict**.
 
-These changes are planned, not part of the current implementation:
+The app loads `pneumonia_cnn.keras`, which must be in the same folder as `app.py`.
 
-- Refine and organize the project code.
-- Build a Flask app for uploading an X-ray image and displaying the model's prediction.
+## Train the model (Keras notebook)
+
+1. Open `pneumonia_keras.ipynb` in Google Colab.
+2. Select a GPU runtime (Runtime → Change runtime type → T4 GPU).
+3. Add your Kaggle API key as `kaggle.json` in `/content/`. Do not commit this file to GitHub.
+4. Run the cells in order. The notebook downloads the dataset, trains the model, evaluates it on the test set, and saves `pneumonia_cnn.keras`.
+
+The notebook uses Colab paths under `/content`. Adjust these if running locally.
+
+## Project structure
+
+```
+Pneumonia-Detection/
+├── app.py                    # Flask app
+├── templates/
+│   └── index.html            # Upload page
+├── pneumonia_cnn.keras       # Trained Keras CNN model
+├── pneumonia_keras.ipynb     # Keras CNN training notebook
+├── pnuemonia_prediction.ipynb # fastai ResNet50 notebook (reference)
+├── requirements.txt
+└── README.md
+```
 
 ## Tech stack
 
-Python · fastai · PyTorch · ResNet50 · pandas · NumPy · Google Colab · Kaggle API
+Python · TensorFlow / Keras · Flask · NumPy · Pillow · pandas · scikit-learn · fastai (reference notebook) · Google Colab · Kaggle API
 
 ## Reference
 
-- **Dataset:** [Chest X-Ray Images (Pneumonia)](https://www.kaggle.com/datasets/paultimothymooney/chest-xray-pneumonia), shared by Paul Mooney on Kaggle.
+- **Dataset:** [Chest X-Ray Images (Pneumonia)](https://www.kaggle.com/datasets/paultimothymooney/chest-xray-pneumonia) by Paul Mooney, Kaggle.
